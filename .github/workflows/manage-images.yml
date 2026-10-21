@@ -1,0 +1,105 @@
+name: 감시 대상 관리
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 수행할 작업
+        type: choice
+        options: [추가, 수정, 삭제]
+        required: true
+      image_id:
+        description: '감시 식별자 (예: nginx)'
+        type: string
+        required: true
+      source:
+        description: '추가할 공개 원본 (예: docker.io/library/nginx). 인증정보 입력 금지'
+        type: string
+        required: false
+      destination:
+        description: '추가할 대상 저장소 이름. 계정명 없이 입력'
+        type: string
+        required: false
+      enabled:
+        description: '사용 여부. 추가할 때 유지는 사용으로 처리'
+        type: choice
+        options: [유지, 사용, 중지]
+        default: 유지
+      include:
+        description: '포함 필터 JSON 배열. 빈칸은 유지·추가 시 기본값, []는 모든 태그 허용'
+        type: string
+        required: false
+      exclude:
+        description: '제외 필터 JSON 배열. 빈칸은 유지·추가 시 제외 없음, []는 제외 해제'
+        type: string
+        required: false
+      preview:
+        description: '미리보기만 실행 (설정·기록·이미지 변경 없음)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# 미러링과 같은 잠금을 사용하여 설정·현황 변경이 겹치지 않도록 합니다.
+concurrency:
+  group: mirror
+  cancel-in-progress: false
+
+jobs:
+  manage:
+    name: 감시 설정 변경
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - name: 최신 기본 브랜치 가져오기
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: 파이썬 준비
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12.12'
+
+      - name: 의존성 설치
+        run: python -m pip install --disable-pip-version-check 'PyYAML==6.0.3'
+
+      - name: 자동 테스트
+        run: python -m unittest discover -s tests -v
+
+      - name: 감시 설정과 현황 갱신
+        env:
+          INPUT_OPERATION: ${{ inputs.operation }}
+          INPUT_ID: ${{ inputs.image_id }}
+          INPUT_SOURCE: ${{ inputs.source }}
+          INPUT_DESTINATION: ${{ inputs.destination }}
+          INPUT_ENABLED: ${{ inputs.enabled }}
+          INPUT_INCLUDE: ${{ inputs.include }}
+          INPUT_EXCLUDE: ${{ inputs.exclude }}
+          INPUT_PREVIEW: ${{ inputs.preview }}
+        run: python scripts/manage_images.py
+
+      - name: 변경 내용 저장
+        if: ${{ !inputs.preview }}
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898081+github-actions[bot]@users.noreply.github.com'
+          git add -- config/images.yaml README.md
+          if git diff --cached --quiet; then
+            echo '저장할 감시 설정 변경이 없습니다.'
+            exit 0
+          fi
+          git commit -m '감시 대상 설정과 현황 갱신'
+          if ! git push origin "HEAD:$DEFAULT_BRANCH"; then
+            echo '::error::기본 브랜치가 변경되었거나 업로드가 거절되었습니다. 최신 설정에서 다시 실행해 주세요.'
+            exit 1
+          fi
+          echo '감시 설정 변경을 기본 브랜치에 저장했습니다.'

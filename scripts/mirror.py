@@ -129,6 +129,11 @@ def load_inputs(config_path: Path, state_path: Path) -> tuple[list[dict], dict]:
         state = json.loads(state_path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
     except (OSError, ValueError, yaml.YAMLError):
         raise MirrorError("설정 또는 상태 파일을 읽을 수 없습니다. 파일과 형식을 확인해 주세요.") from None
+    return validate_inputs(config, state), state
+
+
+def validate_inputs(config: dict, state: dict) -> list[dict]:
+    """미러링 실행과 감시 대상 관리에서 같은 검증 규칙을 사용합니다."""
     require(isinstance(config, dict) and set(config) == {"images"}, "설정에는 images 목록이 필요합니다.")
     images = config["images"]
     require(isinstance(images, list), "감시 대상은 목록이어야 합니다.")
@@ -162,7 +167,7 @@ def load_inputs(config_path: Path, state_path: Path) -> tuple[list[dict], dict]:
         if previous is not None:
             require(all(previous[key] == image[key] for key in ("source", "destination")),
                     "기존 식별자의 원본 또는 대상이 변경되었습니다. 새 식별자로 등록해 주세요.")
-    return images, state
+    return images
 
 
 def validate_state(state: dict) -> None:
