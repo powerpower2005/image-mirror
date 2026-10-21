@@ -134,8 +134,8 @@ python scripts/mirror.py
 
 | 식별자 | 원본 이미지 | 대상 저장소 | 사용 여부 | 태그 필터 | 기준선 태그 수 | 등록 시각 | 마지막 확인 |
 |---|---|---|---|---|---:|---|---|
-| nginx | docker.io/library/nginx | nginx | 사용 | 포함: \d+\.\d+\.\d+, \d+\.\d+\.\d+-alpine; 제외: 없음 | 미등록 | — | — |
-| redis | docker.io/library/redis | redis | 사용 | 포함: \d+\.\d+\.\d+, \d+\.\d+\.\d+-alpine; 제외: 없음 | 미등록 | — | — |
+| nginx | docker.io/library/nginx | nginx | 사용 | 포함: \d+\.\d+\.\d+, \d+\.\d+\.\d+-alpine; 제외: 없음 | 1367 | 2026-10-21T05:40:56Z | 2026-10-21T05:40:56Z |
+| redis | docker.io/library/redis | redis | 사용 | 포함: \d+\.\d+\.\d+, \d+\.\d+\.\d+-alpine; 제외: 없음 | 1196 | 2026-10-21T05:40:57Z | 2026-10-21T05:40:57Z |
 
 ### 처리 이력
 
