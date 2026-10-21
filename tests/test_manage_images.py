@@ -50,6 +50,12 @@ class ChangeImagesTests(unittest.TestCase):
         self.assertFalse(updated[1]["enabled"])
         self.assertEqual(updated[1]["include"], [])
 
+    def test_add_defaults_to_ovdr_and_allows_multiple_apps(self):
+        self.images = [{**IMAGE, "destination": "ovdr"}]
+        self.state = {}
+        updated = self.change("추가", "redis", source="docker.io/library/redis")
+        self.assertEqual([image["destination"] for image in updated], ["ovdr", "ovdr"])
+
     def test_update_preserves_omitted_fields(self):
         updated = self.change("수정", enabled="중지")
         self.assertEqual(updated[0], {**IMAGE, "enabled": False})
@@ -89,8 +95,8 @@ class ChangeImagesTests(unittest.TestCase):
             with self.subTest(operation=operation), self.assertRaises(MirrorError):
                 self.change(operation, identifier)
 
-    def test_duplicate_destination_and_credentials_are_rejected(self):
-        for kwargs in ({"source": "docker.io/library/redis", "destination": "nginx"},
+    def test_invalid_destination_and_credentials_are_rejected(self):
+        for kwargs in ({"source": "docker.io/library/redis", "destination": "namespace/ovdr"},
                        {"source": "https://user:token@registry/image", "destination": "redis"}):
             with self.subTest(kwargs=kwargs), self.assertRaises(MirrorError):
                 self.change("추가", "redis", **kwargs)

@@ -18,6 +18,7 @@ from mirror import (
 
 
 DEFAULT_INCLUDE = [r"\d+\.\d+\.\d+", r"\d+\.\d+\.\d+-alpine"]
+DEFAULT_DESTINATION = "ovdr"
 
 
 def parse_patterns(value: str, default: list[str]) -> list[str]:
@@ -47,8 +48,8 @@ def change_images(images: list[dict], state: dict, operation: str, identifier: s
         updated.remove(existing)
     elif operation == "추가":
         require(existing is None, "이미 등록된 식별자입니다. 수정 작업을 선택해 주세요.")
-        require(bool(source) and bool(destination), "추가할 때는 원본 이미지와 대상 저장소 이름이 필요합니다.")
-        updated.append({"id": identifier, "source": source, "destination": destination,
+        require(bool(source), "추가할 때는 공개 원본 이미지가 필요합니다.")
+        updated.append({"id": identifier, "source": source, "destination": destination or DEFAULT_DESTINATION,
             "enabled": enabled != "중지", "include": parse_patterns(include, DEFAULT_INCLUDE),
             "exclude": parse_patterns(exclude, [])})
     else:

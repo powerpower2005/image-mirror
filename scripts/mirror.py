@@ -137,7 +137,7 @@ def validate_inputs(config: dict, state: dict) -> list[dict]:
     require(isinstance(config, dict) and set(config) == {"images"}, "설정에는 images 목록이 필요합니다.")
     images = config["images"]
     require(isinstance(images, list), "감시 대상은 목록이어야 합니다.")
-    ids, destinations = set(), set()
+    ids = set()
     for image in images:
         require(isinstance(image, dict) and set(image) == {
             "id", "source", "destination", "enabled", "include", "exclude"
@@ -149,8 +149,6 @@ def validate_inputs(config: dict, state: dict) -> list[dict]:
         ids.add(identifier)
         require(valid_source(image["source"]), "원본에는 인증정보나 태그 없이 레지스트리와 이미지 경로를 적어 주세요.")
         require(valid_repository(image["destination"]), "대상에는 올바른 Docker Hub 저장소 이름만 적어 주세요.")
-        require(image["destination"] not in destinations, "대상 저장소가 중복되었습니다.")
-        destinations.add(image["destination"])
         require(type(image["enabled"]) is bool, "사용 여부는 true 또는 false여야 합니다.")
         for field in ("include", "exclude"):
             patterns = image[field]
@@ -177,7 +175,11 @@ def validate_state(state: dict) -> None:
     for identifier, entry in state.items():
         require(isinstance(identifier, str) and IDENTIFIER.fullmatch(identifier) is not None,
                 "상태 파일의 감시 식별자가 올바르지 않습니다.")
-        require(isinstance(entry, dict) and set(entry) == fields, "상태 파일의 이미지 기록 구조가 올바르지 않습니다.")
+        require(isinstance(entry, dict) and fields <= set(entry) <= fields | {"tag_prefix"},
+                "상태 파일의 이미지 기록 구조가 올바르지 않습니다.")
+        prefix = entry.get("tag_prefix", "")
+        require(isinstance(prefix, str) and (not prefix or valid_tag(prefix + "x")),
+                "상태 파일의 대상 태그 접두사가 올바르지 않습니다.")
         require(valid_source(entry["source"]) and valid_repository(entry["destination"]),
                 "상태 파일의 원본 또는 대상이 올바르지 않습니다.")
         require(valid_time(entry["initialized_at"]) and valid_time(entry["last_checked_at"]),
@@ -330,29 +332,39 @@ def markdown(value) -> str:
     return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("|", "&#124;").replace("\n", " ").replace("\r", " ").replace("`", "&#96;")
 
 
+def destination_tag(entry: dict, tag: str) -> str:
+    # 과거 기록에 접두사가 없으면 당시의 태그 경로를 유지합니다.
+    result = entry.get("tag_prefix", "") + tag
+    require(valid_tag(result), "앱 이름을 붙인 대상 태그가 유효하지 않거나 128자를 초과합니다.")
+    return result
+
+
 def render_status(readme: str, images: list[dict], state: dict) -> str:
     require(readme.count(START) == 1 and readme.count(END) == 1
             and readme.index(START) < readme.index(END), "README의 상태 영역 표시를 확인해 주세요.")
     rows = ["", "### 감시 대상", "", "시각은 모두 UTC입니다. 검증은 처리 당시의 다이제스트 일치를 의미합니다.", "",
-            "| 식별자 | 원본 이미지 | 대상 저장소 | 사용 여부 | 태그 필터 | 기준선 태그 수 | 등록 시각 | 마지막 확인 |",
-            "|---|---|---|---|---|---:|---|---|"]
+            "| 식별자 | 원본 이미지 | 대상 저장소 | 대상 태그 형식 | 사용 여부 | 태그 필터 | 기준선 태그 수 | 등록 시각 | 마지막 확인 |",
+            "|---|---|---|---|---|---|---:|---|---|"]
     for image in images:
         entry = state.get(image["id"], {})
         filters = "포함: " + (", ".join(image["include"]) or "전체") + "; 제외: " + (", ".join(image["exclude"]) or "없음")
-        cells = [image["id"], image["source"], image["destination"], "사용" if image["enabled"] else "중지", filters,
+        prefix = entry.get("tag_prefix", "") if entry else image["id"] + "-"
+        cells = [image["id"], image["source"], image["destination"], prefix + "원본태그", "사용" if image["enabled"] else "중지", filters,
                  len(entry["baseline_tags"]) if entry else "미등록", entry.get("initialized_at", "—"), entry.get("last_checked_at", "—")]
         rows.append("| " + " | ".join(markdown(c) for c in cells) + " |")
+    if not images:
+        rows.extend(["", "현재 감시 대상이 없습니다. Actions의 감시 대상 관리에서 추가할 수 있습니다."])
     rows.extend(["", "### 처리 이력", "", "| 원본 이미지 | 태그 | 다이제스트 | 대상 | 플랫폼 | 처리 시각 | 상태 |",
                  "|---|---|---|---|---|---|---|"])
     history = []
     for identifier, entry in state.items():
         for tag, record in entry["mirrored_tags"].items():
             history.append((record["mirrored_at"], identifier, tag, [entry["source"], tag, record["digest"].split(":")[1][:12],
-                f"{entry['destination']}:{tag}", ", ".join(record["platforms"]), record["mirrored_at"], "✅ 검증됨"]))
+                f"{entry['destination']}:{destination_tag(entry, tag)}", ", ".join(record["platforms"]), record["mirrored_at"], "✅ 검증됨"]))
         for tag, record in entry["skipped_tags"].items():
             digest = "원본 " + record["source_digest"].split(":")[1][:12] + " / 대상 " + record["destination_digest"].split(":")[1][:12]
             history.append((record["detected_at"], identifier, tag, [entry["source"], tag, digest,
-                f"{entry['destination']}:{tag}", "—", record["detected_at"], "⚠️ 대상 내용 충돌로 건너뜀"]))
+                f"{entry['destination']}:{destination_tag(entry, tag)}", "—", record["detected_at"], "⚠️ 대상 내용 충돌로 건너뜀"]))
     for _, _, _, cells in sorted(history, reverse=True):
         rows.append("| " + " | ".join(markdown(c) for c in cells) + " |")
     if not history:
@@ -364,7 +376,7 @@ def render_status(readme: str, images: list[dict], state: dict) -> str:
 
 
 def process_tag(image: dict, entry: dict, tag: str, namespace: str, crane: Crane) -> None:
-    destination = f"docker.io/{namespace}/{image['destination']}:{tag}"
+    destination = f"docker.io/{namespace}/{image['destination']}:{destination_tag(entry, tag)}"
     digest = crane.digest(f"{image['source']}:{tag}")
     pinned = f"{image['source']}@{digest}"
     existing = crane.digest(destination, allow_missing=True)
@@ -416,6 +428,7 @@ def run(config_path: Path, state_path: Path, readme_path: Path, namespace: str, 
                 if image["id"] not in state:
                     state[image["id"]] = {"source": image["source"], "destination": image["destination"],
                         "initialized_at": checked_at, "last_checked_at": checked_at,
+                        "tag_prefix": image["id"] + "-",
                         "baseline_tags": tags, "mirrored_tags": {}, "skipped_tags": {}}
                     save_state(state_path, state)
                     emit(image["id"], f"최초 기준선 태그 {len(tags)}개를 저장했습니다. 복사는 하지 않습니다.")

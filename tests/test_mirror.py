@@ -106,6 +106,55 @@ class MirrorTests(unittest.TestCase):
         self.ready.assert_not_called()
         self.assertIn("복사는 하지 않습니다", self.output.getvalue())
 
+    def test_new_baseline_remembers_app_prefix(self):
+        self.assertEqual(self.execute(FakeCrane()), 0)
+        self.assertEqual(self.saved()["nginx"]["tag_prefix"], "nginx-")
+
+    def test_two_apps_share_ovdr_with_distinct_prefixed_tags(self):
+        self.images = [{**IMAGE, "destination": "ovdr"},
+                       {**IMAGE, "id": "redis", "source": "docker.io/library/redis", "destination": "ovdr"}]
+        self.write_inputs({})
+        crane = FakeCrane(tags=["1.0.0"])
+        self.assertEqual(self.execute(crane), 0)
+        self.assertFalse(crane.copies)
+        crane.listed = ["1.0.0", "1.0.1"]
+        destinations = {}
+        def digest(reference, allow_missing=False):
+            if reference.startswith("docker.io/library/"):
+                return D1
+            return destinations.get(reference)
+        def copied(source, destination):
+            crane.copies.append((source, destination))
+            destinations[destination] = D1
+        crane.digest = digest
+        crane.copy = copied
+        self.assertEqual(self.execute(crane), 0)
+        self.assertEqual([destination for _, destination in crane.copies], [
+            "docker.io/private-test-namespace/ovdr:nginx-1.0.1",
+            "docker.io/private-test-namespace/ovdr:redis-1.0.1"])
+        for identifier in ("nginx", "redis"):
+            self.assertIn("1.0.1", self.saved()[identifier]["mirrored_tags"])
+            self.assertIn(f"ovdr:{identifier}-1.0.1", self.readme.read_text(encoding="utf-8"))
+
+    def test_too_long_prefixed_tag_is_not_copied(self):
+        self.images[0]["include"] = []
+        previous = {**entry(), "tag_prefix": "nginx-"}
+        self.write_inputs({"nginx": previous})
+        crane = FakeCrane(tags=["1" * 128])
+        self.assertEqual(self.execute(crane), 1)
+        self.assertFalse(crane.copies)
+        self.assertFalse(self.saved()["nginx"]["mirrored_tags"])
+
+    def test_empty_watch_list_does_not_query_or_change_archived_state(self):
+        self.images = []
+        self.write_inputs({"nginx": entry()})
+        before = self.state.read_bytes()
+        crane = FakeCrane()
+        crane.list_error = AssertionError("감시 대상이 없으면 조회하지 않습니다.")
+        self.assertEqual(self.execute(crane), 0)
+        self.assertEqual(self.state.read_bytes(), before)
+        self.assertIn("현재 감시 대상이 없습니다", self.readme.read_text(encoding="utf-8"))
+
     def test_new_tag_is_pinned_and_verified(self):
         self.write_inputs({"nginx": entry()})
         crane = FakeCrane()
@@ -283,7 +332,6 @@ class MirrorTests(unittest.TestCase):
     def test_invalid_configurations_are_rejected(self):
         variants = [
             [IMAGE, IMAGE],
-            [IMAGE, {**IMAGE, "id": "other"}],
             [{**IMAGE, "include": ["["]}],
             [{**IMAGE, "enabled": "true"}],
             [{**IMAGE, "source": "https://user:password@registry/image"}],

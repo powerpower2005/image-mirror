@@ -9,7 +9,7 @@ on:
         options: [추가, 수정, 삭제]
         required: true
       image_id:
-        description: '감시 식별자 (예: nginx)'
+        description: '앱 이름 겸 감시 식별자. 대상 태그는 앱이름-원본태그 형식'
         type: string
         required: true
       source:
@@ -17,7 +17,7 @@ on:
         type: string
         required: false
       destination:
-        description: '추가할 대상 저장소 이름. 계정명 없이 입력'
+        description: '대상 저장소 이름. 추가 시 빈칸이면 ovdr, 수정·삭제 시 빈칸 유지'
         type: string
         required: false
       enabled:

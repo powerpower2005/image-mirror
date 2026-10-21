@@ -1,14 +1,1 @@
-images:
-  - id: nginx
-    source: docker.io/library/nginx
-    destination: nginx
-    enabled: true
-    include: ['\d+\.\d+\.\d+', '\d+\.\d+\.\d+-alpine']
-    exclude: []
-
-  - id: redis
-    source: docker.io/library/redis
-    destination: redis
-    enabled: true
-    include: ['\d+\.\d+\.\d+', '\d+\.\d+\.\d+-alpine']
-    exclude: []
+images: []
